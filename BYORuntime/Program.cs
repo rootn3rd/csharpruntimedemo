@@ -1,7 +1,7 @@
-﻿Report(new Base());
-Report(new Derived());
+﻿Report(Runtime.New<Base>());
+Report(Runtime.New<Derived>());
 
-void Report(Base b) => Console.WriteLine($"{b.WhoAmI(),10} - {Runtime.Call<string>(b, "WhatCanIDo")}");
+void Report(Base b) => Console.WriteLine($"{Runtime.Call<string>(b, "WhoAmI"),10} - {Runtime.Call<string>(b, "WhatCanIDo")}");
 
 
 delegate object virtual_function(params object[] args);
@@ -20,6 +20,30 @@ static class Runtime
         vtable[functionName] = f.DynamicInvoke;
         return vtable;
     }
+
+    internal static Dictionary<string, TypeMetadata> _loadedTypes = new();
+
+    private static TypeMetadata LoadOrGetType<T>() where T : IInstance
+    {
+        if (!_loadedTypes.TryGetValue(typeof(T).FullName, out TypeMetadata metadata))
+        {
+            metadata = T.LoadType();
+            _loadedTypes.Add(typeof(T).FullName, metadata);
+        }
+        return metadata;
+    }
+
+    public static T New<T>(params object[] args) where T : ImplicitLayout, IInstance
+    {
+        TypeMetadata metadata = LoadOrGetType<T>();
+        object[] parameters = new object[] { metadata }.Concat(args).ToArray();
+        return (T)Activator.CreateInstance(typeof(T), parameters);
+    }
+}
+
+internal interface IInstance
+{
+    static abstract TypeMetadata LoadType();
 }
 
 class TypeMetadata
@@ -48,23 +72,32 @@ class Base : ImplicitLayout
 } 
 */
 
-class Base : ImplicitLayout
+class Base : ImplicitLayout, IInstance
 {
     public Base(TypeMetadata metadata) : base(metadata) { }
+    internal static Type GetType(Base @this) => @this._metadata._type;
+    internal static string WhoAmI(Base @this) => Base.GetType(@this).Name;
+    internal static string WhatCanIDo(Base @this) => "I do stuff";
 
-    public static Type GetType(Base @this) => @this._metadata._type;
-    // _metadata comes here
-    public static string WhoAmI(Base @this) => Base.GetType(@this).Name;
-    public static string WhatCanIDo(Base @this) => "I do stuff";
+    public static TypeMetadata LoadType() => new()
+    {
+        _type = typeof(Base),
+        _vtable = new Dictionary<string, virtual_function>()
+            .Register<Base, string>("WhoAmI", WhoAmI)
+            .Register<Base, string>("WhatCanIDo", WhatCanIDo)
+
+    };
 }
 
 
-class Derived : Base
+class Derived : Base, IInstance
 {
     public Derived(TypeMetadata metadata) : base(metadata) { }
-    public static Type GetType(Derived @this) => @this._metadata._type;
+    internal static string WhatCanIDo(Derived @this) => "I can do more!!";
 
-    // _metadata comes here
-    public static string WhatCanIDo(Derived @this) => "I can do more!!";
-
+    public static TypeMetadata LoadType() => new()
+    {
+        _type = typeof(Derived),
+        _vtable = Base.LoadType()._vtable.Register<Derived, string>("WhatCanIDo", WhatCanIDo),
+    };
 }
